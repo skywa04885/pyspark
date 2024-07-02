@@ -267,14 +267,20 @@ class ZincParser:
     async def parse_row(context: ZincParser.Context, reader: HReader) -> HRow:
         cells: List[HVal] = []
 
-        while await context.consume_if(ZincTokenType.LINEFEED) is None:
-            if await context.consume_if(ZincTokenType.COMMA) is not None:
+        while True:
+            if await context.consume_if(ZincTokenType.LINEFEED) is not None:
+                cells.append(HNull.make())
+                break
+            elif await context.consume_if(ZincTokenType.COMMA) is not None:
                 cells.append(HNull.make())
                 continue
             
             cells.append(await ZincParser.parse_literal(context, reader))
 
-            _ = await context.consume_if(ZincTokenType.COMMA)
+            if await context.consume_if(ZincTokenType.LINEFEED) is not None:
+                break
+
+            _ = await context.consume(ZincTokenType.COMMA)
         
         if len(cells) == 0:
             raise ZincParser.AssembleError(f"Row must contain at least one item")

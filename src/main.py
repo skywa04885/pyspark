@@ -3,6 +3,7 @@ import aiofiles
 import pprint
 from typing import AsyncGenerator
 
+from hgrid_transformers import HGridTransformers
 from zinc.parser import ZincParser
 from ztypes import HZincReader
 from zinc.lexer import ZincLexer
@@ -20,7 +21,7 @@ async def main():
             ),
             HZincReader(),
         )
-        print(a)
+        print(HGridTransformers.into_dataframe(a))
 
 
 asyncio.run(main())

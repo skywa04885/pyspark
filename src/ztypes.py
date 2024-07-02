@@ -140,6 +140,12 @@ class HRow(HVal):
     def __len__(self) -> int:
         return len(self.cells)
 
+    def __iter__(self) -> Iterator[HVal]:
+        return iter(self.cells)
+
+    def __getitem__(self, key: int) -> HVal:
+        return self.cells[key]
+
 
 @dataclass(frozen=True)
 class HGrid(HVal):

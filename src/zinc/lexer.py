@@ -259,6 +259,14 @@ class ZincLexer:
                 token_type = await ZincLexer._consume_uri(context, segments)
             elif await context.consume_if(ZincGrammar.is_number_start, segments):
                 token_type = await ZincLexer._consume_number(context, segments)
+            elif context.current == "<" and context.peek == "<":
+                await context.consume(None, segments)
+                await context.consume(None, segments)
+                token_type = ZincTokenType.GRID_START
+            elif context.current == ">" and context.peek == ">":
+                await context.consume(None, segments)
+                await context.consume(None, segments)
+                token_type = ZincTokenType.GRID_START
             
             if token_type is None:
                 token_type = ZincLexer._TRIVIAL_TOKEN_TABLE.get(context.current)
