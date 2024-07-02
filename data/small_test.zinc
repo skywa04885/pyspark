@@ -1,0 +1,11 @@
+ver:"3.0"
+type,val
+"list",[1,2,3]
+"dict",{dis:"Dict!" foo}
+"grid",<<
+  ver:"2.0"
+  a,b
+  1,2
+  3,4
+  >>
+"scalar","simple string"
