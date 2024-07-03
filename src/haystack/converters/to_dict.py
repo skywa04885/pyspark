@@ -2,7 +2,6 @@ from collections import OrderedDict
 from typing import Any, Dict, List, Optional, OrderedDict as OrderedDictT
 from ztypes import HBool, HDate, HDateTime, HGrid, HNum, HRef, HSymbol, HTime, HVal
 
-
 def _encode_hval(hval: HVal) -> Any:
     if (
         isinstance(hval, HDateTime)
@@ -20,7 +19,6 @@ def _encode_hval(hval: HVal) -> Any:
             return hval.val
 
     return None
-
 
 def haystack_grid_to_dict(grid: HGrid, use_name: bool = True) -> OrderedDictT[str, List[Any]]:
     val: OrderedDictT[str, List[Any]] = OrderedDict()

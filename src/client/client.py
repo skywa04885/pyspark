@@ -75,8 +75,6 @@ class Client(AbstractAsyncContextManager):
         ) as response:
             chunked_iter_wrapper = ChunkedIteratorWrapper(response.content.iter_chunked(1024))
             lexer_ctx = await ZincLexer.Context.make(chunked_iter_wrapper)
-            # async for token in ZincLexer.tokenize(lexer_ctx):
-                # pprint(token)
             parser_ctx = await ZincParser.Context.make(ZincLexer.tokenize(lexer_ctx))
             return await ZincParser.parse_root(parser_ctx, HZincReader())
 

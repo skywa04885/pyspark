@@ -6,10 +6,8 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
-    Generator,
     List,
     Optional,
-    Tuple,
 )
 
 from .grammer import ZincGrammar

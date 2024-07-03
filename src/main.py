@@ -12,6 +12,6 @@ async def main():
 
     async with Client("vts_transport") as client:
         await client.authenticate("Luke_Rieff", "Ffeir234@ommnia")
-        pprint(pd.DataFrame(haystack_grid_to_dict(await client.eval("readAll(terug).hisRead(2023).hisInterpolate.hisRollup(avg, 1mo)"))).iloc[:, 1])
+        pprint(pd.DataFrame(haystack_grid_to_dict(await client.eval("readAll(his).hisRead(null)"))))
 
 asyncio.run(main())

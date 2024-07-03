@@ -390,8 +390,6 @@ class ZincParser:
                 return await ZincParser.parse_ref(context, reader)
             case (ZincTokenType.SYMBOL, _):
                 return await ZincParser.parse_symbol(context, reader)
-            case (ZincTokenType.KEYWORD, _) if str(context.cur) in ["T", "F"]:
-                return await ZincParser.parse_bool(context, reader)
             case (ZincTokenType.URI, _):
                 return await ZincParser.parse_uri(context, reader)
             case (ZincTokenType.NUMBER, _):
@@ -415,5 +413,9 @@ class ZincParser:
                 return await ZincParser.parse_remove(context, reader)
             case (ZincTokenType.KEYWORD, _) if str(context.cur) == "NA":
                 return await ZincParser.parse_na(context, reader)
+            case (ZincTokenType.KEYWORD, _) if str(context.cur) in ["T", "F"]:
+                return await ZincParser.parse_bool(context, reader)
+            case (ZincTokenType.KEYWORD, _) if str(context.cur) in ["NULL", "INF"]:
+                return await ZincParser.parse_num(context, reader)
             case _:
                 raise ZincParser.AssembleError(f"Unexpected token {context.cur.t}")
