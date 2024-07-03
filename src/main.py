@@ -1,27 +1,17 @@
 import asyncio
-import aiofiles
-import pprint
-from typing import AsyncGenerator
+import logging
+from pprint import pprint
+import pandas as pd
 
-from hgrid_transformers import HGridTransformers
-from zinc.parser import ZincParser
-from ztypes import HZincReader
-from zinc.lexer import ZincLexer
-from zinc.token import ZincToken, ZincTokenType
-from helpers.chunked_iterator_wrapper import ChunkedIteratorWrapper
+from client.client import Client
+from haystack.converters.to_dict import haystack_grid_to_dict
 
 
 async def main():
-    async with aiofiles.open("../data/defs.zinc") as t:
-        a = await ZincParser.parse_root(
-            await ZincParser.Context.make(
-                ZincLexer.tokenize(
-                    await ZincLexer.Context.make(aiter(ChunkedIteratorWrapper(t)))
-                )
-            ),
-            HZincReader(),
-        )
-        print(HGridTransformers.into_dataframe(a))
+    logging.basicConfig(level=logging.DEBUG)
 
+    async with Client("vts_transport") as client:
+        await client.authenticate("Luke_Rieff", "Ffeir234@ommnia")
+        pprint(pd.DataFrame(haystack_grid_to_dict(await client.eval("readAll(terug).hisRead(2023).hisInterpolate.hisRollup(avg, 1mo)"))).iloc[:, 1])
 
 asyncio.run(main())

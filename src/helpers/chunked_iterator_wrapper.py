@@ -5,14 +5,15 @@ from typing import AsyncIterator
 
 @dataclass
 class ChunkedIteratorWrapper(AsyncIterator[str]):
-    _source: AsyncIterator[str]
+    _source: AsyncIterator[bytes]
     _buffer: str = ""
     _read: int = 0
 
     async def _fetch(self) -> None:
         self._buffer = self._buffer[self._read :]
         self._read = 0
-        self._buffer += await anext(self._source, "")
+
+        self._buffer += (await anext(self._source, bytes())).decode()
 
     async def __anext__(self) -> str:
         # If the buffer is empty, first try to fetch more data.

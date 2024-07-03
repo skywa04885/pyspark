@@ -51,7 +51,9 @@ class ZincParser:
             self.cur = self.peek
             self.peek = await anext(self.it, None)
 
-        async def consume_if(self, t: ZincTokenType, v: str | None = None) -> str | None:
+        async def consume_if(
+            self, t: ZincTokenType, v: str | None = None
+        ) -> str | None:
             if self.cur is None:
                 return None
             elif self.cur.t != t:
@@ -106,7 +108,7 @@ class ZincParser:
 
     @staticmethod
     async def parse_bool(context: ZincParser.Context, reader: HReader) -> HBool:
-        return reader.read_bool(await context.consume(ZincTokenType.BOOL))
+        return reader.read_bool(await context.consume(ZincTokenType.KEYWORD))
 
     @staticmethod
     async def parse_uri(context: ZincParser.Context, reader: HReader) -> HUri:
@@ -132,7 +134,13 @@ class ZincParser:
     async def parse_date_time(
         context: ZincParser.Context, reader: HReader
     ) -> HDateTime:
-        return reader.read_date_time(await context.consume(ZincTokenType.DATETIME))
+        val: HDateTime = reader.read_date_time(
+            await context.consume(ZincTokenType.DATETIME)
+        )
+
+        _ = await context.consume_if(ZincTokenType.KEYWORD)
+
+        return val
 
     @staticmethod
     async def parse_null(context: ZincParser.Context, reader: HReader) -> HNull:
@@ -223,8 +231,10 @@ class ZincParser:
     @staticmethod
     async def parse_dict(context: ZincParser.Context, reader: HReader) -> HDict:
         _ = await context.consume(ZincTokenType.LBRACE)
-        
-        tags: Dict[str, HVal] = await ZincParser.parse_tags(context, reader, allow_comma=True)
+
+        tags: Dict[str, HVal] = await ZincParser.parse_tags(
+            context, reader, allow_comma=True
+        )
 
         _ = await context.consume(ZincTokenType.RBRACE)
 
@@ -274,14 +284,14 @@ class ZincParser:
             elif await context.consume_if(ZincTokenType.COMMA) is not None:
                 cells.append(HNull.make())
                 continue
-            
+
             cells.append(await ZincParser.parse_literal(context, reader))
 
             if await context.consume_if(ZincTokenType.LINEFEED) is not None:
                 break
 
             _ = await context.consume(ZincTokenType.COMMA)
-        
+
         if len(cells) == 0:
             raise ZincParser.AssembleError(f"Row must contain at least one item")
 
@@ -310,7 +320,12 @@ class ZincParser:
 
         rows_: List[HRow] = []
 
-        while context.cur is not None:
+        while True:
+            _ = await context.consume_if(ZincTokenType.LINEFEED) is not None
+
+            if context.cur is None:
+                break
+
             rows_.append(await ZincParser.parse_row(context, reader))
 
         return HGrid.make(meta_, cols_, rows_)
@@ -349,9 +364,13 @@ class ZincParser:
             ############################################################################
             ## Literals consisting of a keyword and string between parentheses.
             ############################################################################
-            case (ZincTokenType.KEYWORD, ZincTokenType.LPAREN) if str(context.cur) == "C":
+            case (ZincTokenType.KEYWORD, ZincTokenType.LPAREN) if str(
+                context.cur
+            ) == "C":
                 return await ZincParser.parse_coord(context, reader)
-            case (ZincTokenType.KEYWORD, ZincTokenType.LPAREN) if str(context.cur) == "Bin":
+            case (ZincTokenType.KEYWORD, ZincTokenType.LPAREN) if str(
+                context.cur
+            ) == "Bin":
                 return await ZincParser.parse_bin(context, reader)
             case (ZincTokenType.KEYWORD, ZincTokenType.LPAREN):
                 return await ZincParser.parse_xstr(context, reader)
@@ -371,7 +390,7 @@ class ZincParser:
                 return await ZincParser.parse_ref(context, reader)
             case (ZincTokenType.SYMBOL, _):
                 return await ZincParser.parse_symbol(context, reader)
-            case (ZincTokenType.BOOL, _):
+            case (ZincTokenType.KEYWORD, _) if str(context.cur) in ["T", "F"]:
                 return await ZincParser.parse_bool(context, reader)
             case (ZincTokenType.URI, _):
                 return await ZincParser.parse_uri(context, reader)

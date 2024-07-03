@@ -715,12 +715,23 @@ class HZincReader(HReader):
             raise HReader.ReadException(f"Ref start is not valid.")
 
         for i in range(1, len(s)):
+            if ZincGrammar.is_ref_end(s[i]):
+                i += 1
+                
+                if i < len(s):
+                    raise HReader.ReadException(f"Ref is not valid.")
+
+                break
+
             if not ZincGrammar.is_ref_part(s[i]):
-                raise HReader.ReadException("Invalid ref")
+                raise HReader.ReadException(f"Invalid ref: {s}")
 
         return HRef.make(s[1:])
 
     def read_date_time(self, s: str) -> HDateTime:
-        s = s[: s.index(" ")]
+        idx: int = s.find(" ")
+
+        if idx != -1:
+            s = s[: idx]
 
         return HDateTime.make(datetime.fromisoformat(s))

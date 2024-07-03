@@ -229,7 +229,7 @@ class ZincLexer:
             return ZincTokenType.DATE
         elif dashes == 0 and colons > 1:
             return ZincTokenType.TIME
-        elif dashes > 2:
+        elif dashes >= 2 and colons >= 2:
             return ZincTokenType.DATETIME
 
         return ZincTokenType.NUMBER

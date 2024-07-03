@@ -16,7 +16,6 @@ class ZincTokenType(Enum):
     NUMBER = 90
     GRID_START = 91
     GRID_END = 92
-    BOOL = 93
     LPAREN = 100
     RPAREN = 110
     LBRACKET = 120
