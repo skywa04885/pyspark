@@ -1,7 +1,7 @@
 from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from email import parser
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from aiohttp import ClientSession
 from base64 import urlsafe_b64encode, urlsafe_b64decode
@@ -9,9 +9,10 @@ from pprint import pprint
 from scramp import ScramClient, ScramException
 import logging
 
-from auth.auth_msg import AuthMsg
-from auth.authentication_info import AuthInfo
 from helpers.chunked_iterator_wrapper import ChunkedIteratorWrapper
+from auth.headers.skyspark_auth_header import SkysparkAuthHeader
+from auth.headers.skyspark_auth_header_factory import SkysparkAuthHeaderFactory
+from auth.headers.message_parameters import MessageParameters
 from zinc.parser import ZincParser
 from zinc.lexer import ZincLexer
 from ztypes import HGrid, HZincReader
@@ -41,53 +42,42 @@ class Client(AbstractAsyncContextManager):
 
         return None
 
-    @staticmethod
-    def _auth_hello_msg(username: str, password: str) -> AuthMsg:
-        escaped_username: str = (
-            urlsafe_b64encode(username.encode()).decode().rstrip("=")
-        )
-
-        return AuthMsg(
-            "hello",
-            {
-                "username": escaped_username,
-            },
-        )
-
-    @staticmethod
-    def _auth_exchange_msg(handshake_token: str, data: str) -> AuthMsg:
-        escaped_data: str = urlsafe_b64encode(data.encode()).decode().rstrip("=")
-
-        return AuthMsg(
-            "scram",
-            {
-                "handshaketoken": handshake_token,
-                "data": escaped_data,
-            },
-        )
+    @property
+    def api_path(self) -> str:
+        return f"/api/{self.project}"
 
     async def eval(self, expr: str) -> HGrid:
-        async with self.session.get(
-            f"/api/{self.project}/eval",
-            params={
-                "expr": expr,
-            },
-        ) as response:
-            chunked_iter_wrapper = ChunkedIteratorWrapper(response.content.iter_chunked(1024))
-            lexer_ctx = await ZincLexer.Context.make(chunked_iter_wrapper)
-            parser_ctx = await ZincParser.Context.make(ZincLexer.tokenize(lexer_ctx))
+        # Create the path and the parameters.
+        path: str = f"{self.api_path}/eval"
+        params: Dict[str, Any] = {"expr": expr}
+
+        # Perform the evaluation request.
+        async with self.session.get(path, params=params) as response:
+            # Turn the chunked response content into a character iterator.
+            chunk_iter = response.content.iter_chunked(1024)
+            char_iter = ChunkedIteratorWrapper(chunk_iter)
+
+            # Create the lexer context then the start tokenizing the stream of chars.
+            lexer_ctx = await ZincLexer.Context.make(char_iter)
+            token_iter = ZincLexer.tokenize(lexer_ctx)
+
+            # Create the parser context and parse the tokens.
+            parser_ctx = await ZincParser.Context.make(token_iter)
             return await ZincParser.parse_root(parser_ctx, HZincReader())
 
     async def authenticate(self, username: str, password: str) -> None:
-        path: str = f"/api/{self.project}/about"
 
-        self.logger.debug(f"Sending hello for username '{username}' and password '{password}'")
+        self.logger.debug(
+            f"Sending hello for username '{username}' and password '{password}'"
+        )
 
         # Hello message
         async with self.session.get(
-            path,
+            f"{self.api_path}/about",
             headers={
-                "Authorization": Client._auth_hello_msg(username, password).encode(),
+                "Authorization": SkysparkAuthHeaderFactory.create_hello(
+                    username
+                ).encode()
             },
         ) as response:
             if response.status != 401:
@@ -102,13 +92,16 @@ class Client(AbstractAsyncContextManager):
                     f"Missing authentication header 'WWW-Authenticate'"
                 )
 
-            recv_auth_msg: AuthMsg = AuthMsg.decode(www_authenticate)
-
-        if recv_auth_msg.scheme != "scram":
-            raise Client.AuthenticationError(
-                f"Unsupported authentication scheme {recv_auth_msg.scheme}"
+            recv_auth_msg: SkysparkAuthHeader = SkysparkAuthHeader.decode(
+                www_authenticate
             )
 
+        if recv_auth_msg.schema != "scram":
+            raise Client.AuthenticationError(
+                f"Unsupported authentication scheme {recv_auth_msg.schema}"
+            )
+
+        print(recv_auth_msg.params)
         handshake_token: str = recv_auth_msg.params["handshaketoken"]
         auth_hash_algo: str = recv_auth_msg.params["hash"]
 
@@ -131,9 +124,9 @@ class Client(AbstractAsyncContextManager):
         ## STEP 1
 
         async with self.session.get(
-            path,
+            f"{self.api_path}/about",
             headers={
-                "Authorization": Client._auth_exchange_msg(
+                "Authorization": SkysparkAuthHeaderFactory.create_scram(
                     handshake_token, scram_client.get_client_first()
                 ).encode(),
             },
@@ -150,7 +143,9 @@ class Client(AbstractAsyncContextManager):
                     f"Missing authentication header 'WWW-Authenticate' after client first"
                 )
 
-            recv_auth_msg: AuthMsg = AuthMsg.decode(www_authenticate)
+            recv_auth_msg: SkysparkAuthHeader = SkysparkAuthHeader.decode(
+                www_authenticate
+            )
 
         handshake_token: str = recv_auth_msg.params["handshaketoken"]
         data: str = recv_auth_msg.params["data"]
@@ -165,9 +160,9 @@ class Client(AbstractAsyncContextManager):
         self.logger.debug("Sending SCRAM second")
 
         async with self.session.get(
-            path,
+            f"{self.api_path}/about",
             headers={
-                "Authorization": Client._auth_exchange_msg(
+                "Authorization": SkysparkAuthHeaderFactory.create_scram(
                     handshake_token, scram_client.get_client_final()
                 ).encode(),
             },
@@ -179,10 +174,10 @@ class Client(AbstractAsyncContextManager):
 
             authentication_info: str = response.headers["Authentication-Info"]
 
-            auth_info: AuthInfo = AuthInfo.decode(authentication_info)
+            params = MessageParameters.decode(authentication_info)
 
-        auth_token: str = auth_info.params["authtoken"]
-        data: str = auth_info.params["data"]
+        auth_token: str = params["authtoken"]
+        data: str = params["data"]
 
         ##### STEP 3
 
@@ -197,10 +192,5 @@ class Client(AbstractAsyncContextManager):
 
         self.session.headers.add(
             "Authorization",
-            AuthMsg(
-                "bearer",
-                {
-                    "authtoken": auth_token,
-                },
-            ).encode(),
+            SkysparkAuthHeaderFactory.create_auth(auth_token).encode(),
         )
