@@ -13,6 +13,7 @@ from helpers.chunked_iterator_wrapper import ChunkedIteratorWrapper
 from auth.headers.skyspark_auth_header import SkysparkAuthHeader
 from auth.headers.skyspark_auth_header_factory import SkysparkAuthHeaderFactory
 from auth.headers.message_parameters import MessageParameters
+from helpers.unpadded_base64 import unpadded_base64_decode
 from zinc.parser import ZincParser
 from zinc.lexer import ZincLexer
 from ztypes import HGrid, HZincReader
@@ -65,59 +66,54 @@ class Client(AbstractAsyncContextManager):
             parser_ctx = await ZincParser.Context.make(token_iter)
             return await ZincParser.parse_root(parser_ctx, HZincReader())
 
-    async def authenticate(self, username: str, password: str) -> None:
+    async def _auth_send_hello(self, username: str) -> Tuple[str, str, str]:
+        self.logger.debug(f"Sending hello for username '{username}'")
 
-        self.logger.debug(
-            f"Sending hello for username '{username}' and password '{password}'"
-        )
+        path = f"{self.api_path}/about"
+        headers = {
+            "Authorization": SkysparkAuthHeaderFactory.create_hello(username).encode()
+        }
 
-        # Hello message
-        async with self.session.get(
-            f"{self.api_path}/about",
-            headers={
-                "Authorization": SkysparkAuthHeaderFactory.create_hello(
-                    username
-                ).encode()
-            },
-        ) as response:
+        async with self.session.get(path, headers=headers) as response:
             if response.status != 401:
                 raise Client.AuthenticationError(
                     f"Expected status code 401, got {response.status}"
                 )
 
-            www_authenticate: Optional[str] = response.headers.get("WWW-Authenticate")
+            auth_header = SkysparkAuthHeader.decode(
+                response.headers["WWW-Authenticate"]
+            )
 
-            if www_authenticate is None:
+            schema: str = auth_header.schema
+            handshake_token: str = auth_header.params["handshakeToken"]
+            hash_: str = auth_header.params["hash"]
+
+            return (schema, handshake_token, hash_)
+
+    def _auth_initialize_scam(
+        self, username: str, password: str, hash_: str
+    ) -> ScramClient:
+        mechanisms: List[str] = []
+
+        match hash_:
+            case "SHA-256":
+                mechanisms.append("SCRAM-SHA-256")
+            case "SHA-512":
+                mechanisms.append("SCRAM-SHA-512")
+            case _:
                 raise Client.AuthenticationError(
-                    f"Missing authentication header 'WWW-Authenticate'"
+                    f"Unsupported hashing algorithm {hash_}"
                 )
 
-            recv_auth_msg: SkysparkAuthHeader = SkysparkAuthHeader.decode(
-                www_authenticate
-            )
+        return ScramClient(mechanisms, username, password)
 
-        if recv_auth_msg.schema != "scram":
-            raise Client.AuthenticationError(
-                f"Unsupported authentication scheme {recv_auth_msg.schema}"
-            )
+    async def authenticate(self, username: str, password: str) -> None:
+        (schema, handshake_token, hash_) = await self._auth_send_hello(username)
 
-        print(recv_auth_msg.params)
-        handshake_token: str = recv_auth_msg.params["handshaketoken"]
-        auth_hash_algo: str = recv_auth_msg.params["hash"]
+        if schema != "scram":
+            raise Client.AuthenticationError(f"Scheme {schema} not supported")
 
-        # Prep mech.
-        mechanisms: List[str] = []
-        if auth_hash_algo == "SHA-256":
-            mechanisms.append("SCRAM-SHA-256")
-        elif auth_hash_algo == "SHA-512":
-            mechanisms.append("SCRAM-SHA-512")
-        else:
-            raise Client.AuthenticationError(
-                f"Unsupported hashing algorithm {auth_hash_algo}"
-            )
-
-        # Scram create client
-        scram_client: ScramClient = ScramClient(mechanisms, username, password)
+        scram_client = self._auth_initialize_scam(username, password, hash_)
 
         self.logger.debug("Sending SCRAM first")
 
@@ -136,15 +132,8 @@ class Client(AbstractAsyncContextManager):
                     f"Expected status code 401 after client first, got {response.status}"
                 )
 
-            www_authenticate: Optional[str] = response.headers.get("WWW-Authenticate")
-
-            if www_authenticate is None:
-                raise Client.AuthenticationError(
-                    f"Missing authentication header 'WWW-Authenticate' after client first"
-                )
-
             recv_auth_msg: SkysparkAuthHeader = SkysparkAuthHeader.decode(
-                www_authenticate
+                response.headers["WWW-Authenticate"]
             )
 
         handshake_token: str = recv_auth_msg.params["handshaketoken"]
@@ -152,9 +141,7 @@ class Client(AbstractAsyncContextManager):
 
         ##### STEP 2
 
-        scram_client.set_server_first(
-            urlsafe_b64decode((data + "=" * (len(data) % 4)).encode()).decode()
-        )
+        scram_client.set_server_first(unpadded_base64_decode(data))
 
         ## STEP 3
         self.logger.debug("Sending SCRAM second")
@@ -172,19 +159,15 @@ class Client(AbstractAsyncContextManager):
                     f"Expected status code 200 after client final, got {response.status}"
                 )
 
-            authentication_info: str = response.headers["Authentication-Info"]
+            params = MessageParameters.decode(response.headers["Authentication-Info"])
 
-            params = MessageParameters.decode(authentication_info)
-
-        auth_token: str = params["authtoken"]
+        auth_token: str = params["authToken"]
         data: str = params["data"]
 
         ##### STEP 3
 
         try:
-            scram_client.set_server_final(
-                urlsafe_b64decode((data + "=" * (len(data) % 4)).encode()).decode()
-            )
+            scram_client.set_server_final(unpadded_base64_decode(data))
         except ScramException:
             raise Client.AuthenticationError("Authenticatio failed")
 
